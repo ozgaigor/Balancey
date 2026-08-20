@@ -55,6 +55,7 @@ export function SegmentedControl<T extends string>({
     <ScrollView
       horizontal
       showsHorizontalScrollIndicator={false}
+      style={styles.bar}
       contentContainerStyle={styles.scroll}
     >
       {chips}
@@ -63,13 +64,33 @@ export function SegmentedControl<T extends string>({
 }
 
 const styles = StyleSheet.create({
+  /**
+   * ScrollView ma w React Native styl bazowy `flexGrow: 1, flexShrink: 1`.
+   * Bez tego nadpisania pasek filtrów rozpycha się na całą wolną wysokość
+   * kontenera i dzieli ją z listą transakcji, zamiast zająć tylko tyle,
+   * ile wynosi wysokość jego własnych chipów.
+   */
+  bar: {
+    flexGrow: 0,
+    flexShrink: 0,
+  },
   scroll: {
     gap: spacing.sm,
     paddingVertical: 2,
+    // Bez tego chipy rozciągają się w pionie na całą wysokość paska.
+    alignItems: 'center',
   },
   chip: {
-    minHeight: 40,
-    paddingHorizontal: spacing.lg,
+    /**
+     * Stała szerokość: rząd filtrów ma wyglądać równo niezależnie od tego,
+     * czy kategoria nazywa się "Dom", czy "Poduszka finansowa".
+     * Górna granica chroni przed rozjechaniem paska na długiej nazwie.
+     */
+    minWidth: 116,
+    maxWidth: 220,
+    minHeight: 44,
+    flexShrink: 0,
+    paddingHorizontal: spacing.md,
     borderRadius: radius.pill,
     backgroundColor: colors.surface,
     borderWidth: 1,
@@ -84,5 +105,6 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: font.small,
     fontWeight: '600',
+    textAlign: 'center',
   },
 });
