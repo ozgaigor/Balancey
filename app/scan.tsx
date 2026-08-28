@@ -52,6 +52,12 @@ export default function ScanScreen() {
 
   const [phase, setPhase] = useState<Phase>('camera');
   const [status, setStatus] = useState('');
+  /**
+   * Aparat zgłasza gotowość dopiero po uruchomieniu podglądu. Zrobienie
+   * zdjęcia wcześniej kończy się wyjątkiem, dlatego spust jest do tego
+   * czasu zablokowany (wymóg z dokumentacji `takePictureAsync`).
+   */
+  const [cameraReady, setCameraReady] = useState(false);
   const [draft, setDraft] = useState<DraftReceipt | null>(null);
   const [payerId, setPayerId] = useState<number | null>(null);
   const [editing, setEditing] = useState<DraftItem | null>(null);
@@ -105,6 +111,11 @@ export default function ScanScreen() {
   const handleCapture = useCallback(async () => {
     if (!cameraRef.current) return;
 
+    if (!cameraReady) {
+      showToast('Aparat jeszcze się uruchamia — spróbuj za chwilę', 'warning');
+      return;
+    }
+
     if (!isOcrAvailable()) {
       showToast(OCR_UNAVAILABLE_MESSAGE, 'warning');
       return;
@@ -118,12 +129,15 @@ export default function ScanScreen() {
       const photo = await cameraRef.current.takePictureAsync({ quality: 0.9 });
       photoUri = photo?.uri ?? null;
     } catch (error) {
-      showToast('Nie udało się zrobić zdjęcia', 'error');
+      // Treść wyjątku jest tu jedyną wskazówką, co poszło nie tak — pokazujemy ją.
+      const detail = error instanceof Error ? error.message : String(error);
+      showToast(`Nie udało się zrobić zdjęcia: ${detail}`, 'error');
       setPhase('camera');
       return;
     }
 
     if (!photoUri) {
+      showToast('Aparat nie zwrócił zdjęcia', 'error');
       setPhase('camera');
       return;
     }
@@ -132,7 +146,7 @@ export default function ScanScreen() {
       const result = await recognizeReceipt(photoUri as string);
       return buildDraftFromText(result.text, result.imageUri);
     }, 'Odczytuję paragon…');
-  }, [showToast, startDraft]);
+  }, [cameraReady, showToast, startDraft]);
 
   const handleManual = useCallback(async () => {
     await startDraft(() => buildEmptyDraft(), 'Przygotowuję…');
@@ -246,7 +260,16 @@ export default function ScanScreen() {
 
         <View style={styles.cameraWrapper}>
           {permission?.granted ? (
-            <CameraView ref={cameraRef} style={styles.camera} facing="back">
+            <CameraView
+              ref={cameraRef}
+              style={styles.camera}
+              facing="back"
+              onCameraReady={() => setCameraReady(true)}
+              onMountError={(event) => {
+                setCameraReady(false);
+                showToast(`Aparat się nie uruchomił: ${event.message}`, 'error');
+              }}
+            >
               <View style={styles.frame} pointerEvents="none" />
             </CameraView>
           ) : (
@@ -262,12 +285,16 @@ export default function ScanScreen() {
         </View>
 
         <View style={[styles.cameraActions, { paddingBottom: insets.bottom + spacing.lg }]}>
-          <Text style={styles.hint}>Ustaw paragon w ramce, tak aby widoczna była cała lista.</Text>
+          <Text style={styles.hint}>
+            {permission?.granted && !cameraReady
+              ? 'Uruchamiam aparat…'
+              : 'Ustaw paragon w ramce, tak aby widoczna była cała lista.'}
+          </Text>
           <Button
             label="Zrób zdjęcie"
             icon="scan-outline"
             onPress={handleCapture}
-            disabled={!permission?.granted}
+            disabled={!permission?.granted || !cameraReady}
             large
           />
           <Button
