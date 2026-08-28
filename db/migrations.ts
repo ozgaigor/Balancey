@@ -9,7 +9,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { nowTimestamp } from '../utils/dates';
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 const MIGRATION_1 = `
 CREATE TABLE IF NOT EXISTS categories (
@@ -130,6 +130,72 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 `;
 
+const MIGRATION_2 = `
+CREATE TABLE IF NOT EXISTS people (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  color TEXT NOT NULL DEFAULT '#7C9CF5',
+  is_me INTEGER NOT NULL DEFAULT 0,
+  archived INTEGER NOT NULL DEFAULT 0,
+  is_demo INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS receipts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  transaction_id INTEGER REFERENCES transactions (id) ON DELETE CASCADE,
+  merchant TEXT NOT NULL DEFAULT '',
+  date TEXT NOT NULL,
+  total INTEGER NOT NULL DEFAULT 0,
+  payer_id INTEGER REFERENCES people (id) ON DELETE SET NULL,
+  source TEXT NOT NULL DEFAULT 'manual' CHECK (source IN ('scan', 'manual')),
+  raw_text TEXT,
+  image_uri TEXT,
+  is_demo INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS receipt_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  receipt_id INTEGER NOT NULL REFERENCES receipts (id) ON DELETE CASCADE,
+  name TEXT NOT NULL DEFAULT '',
+  quantity INTEGER NOT NULL DEFAULT 1000,
+  unit_price INTEGER NOT NULL DEFAULT 0,
+  total INTEGER NOT NULL DEFAULT 0,
+  category_id INTEGER REFERENCES categories (id) ON DELETE SET NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS item_shares (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  item_id INTEGER NOT NULL REFERENCES receipt_items (id) ON DELETE CASCADE,
+  person_id INTEGER NOT NULL REFERENCES people (id) ON DELETE CASCADE,
+  amount INTEGER NOT NULL DEFAULT 0,
+  UNIQUE (item_id, person_id)
+);
+
+CREATE TABLE IF NOT EXISTS settlements (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  person_id INTEGER NOT NULL REFERENCES people (id) ON DELETE CASCADE,
+  amount INTEGER NOT NULL,
+  date TEXT NOT NULL,
+  note TEXT,
+  is_demo INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_receipts_transaction ON receipts (transaction_id);
+CREATE INDEX IF NOT EXISTS idx_receipts_date ON receipts (date);
+CREATE INDEX IF NOT EXISTS idx_receipt_items_receipt ON receipt_items (receipt_id);
+CREATE INDEX IF NOT EXISTS idx_item_shares_item ON item_shares (item_id);
+CREATE INDEX IF NOT EXISTS idx_item_shares_person ON item_shares (person_id);
+CREATE INDEX IF NOT EXISTS idx_settlements_person ON settlements (person_id);
+`;
+
 /** Kategorie tworzone przy pierwszym uruchomieniu. */
 export const DEFAULT_CATEGORIES: {
   name: string;
@@ -201,8 +267,13 @@ export async function runMigrations(db: SQLiteDatabase): Promise<void> {
     await db.execAsync(`PRAGMA user_version = 1`);
   }
 
+  if (currentVersion < 2) {
+    await db.execAsync(MIGRATION_2);
+    await db.execAsync(`PRAGMA user_version = 2`);
+  }
+
   // Kolejne migracje dodajemy tutaj:
-  // if (currentVersion < 2) { await db.execAsync(MIGRATION_2); await db.execAsync('PRAGMA user_version = 2'); }
+  // if (currentVersion < 3) { await db.execAsync(MIGRATION_3); await db.execAsync('PRAGMA user_version = 3'); }
 
   await seedDefaults(db);
 }
@@ -240,6 +311,19 @@ export async function seedDefaults(db: SQLiteDatabase): Promise<void> {
     } finally {
       await statement.finalizeAsync();
     }
+  }
+
+  // Właściciel telefonu — punkt odniesienia dla wszystkich sald.
+  const meCount = await db.getFirstAsync<{ count: number }>(
+    'SELECT COUNT(*) AS count FROM people WHERE is_me = 1'
+  );
+
+  if ((meCount?.count ?? 0) === 0) {
+    await db.runAsync(
+      `INSERT INTO people (name, color, is_me, archived, is_demo, created_at, updated_at)
+       VALUES (?, ?, 1, 0, 0, ?, ?)`,
+      ['Ja', '#22C55E', timestamp, timestamp]
+    );
   }
 
   const settingsStatement = await db.prepareAsync(

@@ -18,7 +18,7 @@ import { typeLabel } from '../theme';
 import type { TransactionType } from '../types';
 
 export const BACKUP_FORMAT = 'budzet-domowy-backup';
-export const BACKUP_VERSION = 1;
+export const BACKUP_VERSION = 2;
 
 interface BackupFile {
   format: string;
@@ -35,6 +35,11 @@ interface BackupFile {
     monthly_plans: Record<string, unknown>[];
     merchant_hints: Record<string, unknown>[];
     settings: Record<string, unknown>[];
+    people: Record<string, unknown>[];
+    receipts: Record<string, unknown>[];
+    receipt_items: Record<string, unknown>[];
+    item_shares: Record<string, unknown>[];
+    settlements: Record<string, unknown>[];
   };
 }
 
@@ -52,6 +57,13 @@ const TABLES = [
   'monthly_plans',
   'merchant_hints',
   'settings',
+  // Paragony: osoby przed paragonami, paragony przed pozycjami,
+  // pozycje przed udziałami — inaczej klucze obce odrzucą zapis.
+  'people',
+  'receipts',
+  'receipt_items',
+  'item_shares',
+  'settlements',
 ] as const;
 
 /** Zbiera całą zawartość bazy do jednego obiektu. */

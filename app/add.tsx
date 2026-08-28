@@ -219,7 +219,18 @@ export default function AddTransactionScreen() {
           <Ionicons name="close" size={22} color={colors.text} />
         </Pressable>
         <Text style={styles.headerTitle}>{TITLE[type]}</Text>
-        <View style={styles.closeButton} />
+        {type === 'expense' ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Skanuj paragon"
+            onPress={() => router.replace('/scan')}
+            style={({ pressed }) => [styles.closeButton, pressed && styles.pressed]}
+          >
+            <Ionicons name="scan-outline" size={22} color={colors.accent} />
+          </Pressable>
+        ) : (
+          <View style={styles.closeButton} />
+        )}
       </View>
 
       <ScrollView

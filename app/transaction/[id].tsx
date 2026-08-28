@@ -20,6 +20,7 @@ import { useApp } from '../../state/AppProvider';
 import { listCategories } from '../../db/repositories/categories';
 import { listGoals } from '../../db/repositories/savings';
 import { getTransaction } from '../../db/repositories/transactions';
+import { getReceiptByTransaction } from '../../db/repositories/receipts';
 import {
   duplicate,
   editTransaction,
@@ -64,6 +65,9 @@ export default function TransactionDetailsScreen() {
 
   const categoriesState = useDbData(() => listCategories(type), [type]);
   const goalsState = useDbData(() => listGoals(), []);
+  // Wydatek utworzony ze skanu ma pod spodem listę zakupów z podziałem na osoby.
+  const receiptState = useDbData(() => getReceiptByTransaction(transactionId), [transactionId]);
+  const receipt = receiptState.data;
   const categories = categoriesState.data ?? [];
   const goals = goalsState.data ?? [];
 
@@ -255,6 +259,15 @@ export default function TransactionDetailsScreen() {
               )}
             </View>
           </Card>
+
+          {receipt && (
+            <Button
+              label={`Lista zakupów (${receipt.items.length})`}
+              icon="list-outline"
+              variant="secondary"
+              onPress={() => router.push(`/receipt/${receipt.id}`)}
+            />
+          )}
 
           <View style={styles.actions}>
             <Button

@@ -46,6 +46,13 @@ function RootContent() {
           options={{ presentation: 'modal', animation: 'slide_from_bottom' }}
         />
         <Stack.Screen name="transaction/[id]" />
+        <Stack.Screen
+          name="scan"
+          options={{ presentation: 'modal', animation: 'slide_from_bottom' }}
+        />
+        <Stack.Screen name="receipt/[id]" />
+        <Stack.Screen name="people" />
+        <Stack.Screen name="settle" />
         <Stack.Screen name="month/[ym]" />
         <Stack.Screen name="day/[date]" />
       </Stack>

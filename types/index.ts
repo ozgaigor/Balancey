@@ -148,3 +148,109 @@ export interface AppSettings {
   budgetAlertsEnabled: boolean;
   demoDataLoaded: boolean;
 }
+
+/* ------------------------------------------------------------------ *
+ * Paragony, pozycje i podział kosztów między osoby.
+ * ------------------------------------------------------------------ */
+
+/** Osoba uczestnicząca w podziale kosztów (domownik, współlokator, znajomy). */
+export interface Person {
+  id: number;
+  name: string;
+  color: string;
+  /** Właściciel telefonu. Dokładnie jedna osoba ma tę flagę. */
+  isMe: boolean;
+  archived: boolean;
+  isDemo: boolean;
+}
+
+/** Skąd wzięły się pozycje paragonu. */
+export type ReceiptSource = 'scan' | 'manual';
+
+export interface Receipt {
+  id: number;
+  /** Wydatek utworzony z tego paragonu (usunięcie wydatku kasuje paragon). */
+  transactionId: number | null;
+  merchant: string;
+  date: ISODate;
+  /**
+   * Wartość paragonu w groszach — zawsze równa sumie pozycji i kwocie
+   * powiązanego wydatku. Suma odczytana przez OCR służy tylko do kontroli
+   * na ekranie skanowania i nie jest tu przechowywana.
+   */
+  total: number;
+  /** Kto zapłacił przy kasie. Pozostałe osoby są mu winne swoje udziały. */
+  payerId: number | null;
+  source: ReceiptSource;
+  /** Surowy tekst z OCR — pozwala poprawić parsowanie bez ponownego skanu. */
+  rawText: string | null;
+  imageUri: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Ilość jest przechowywana jako liczba całkowita pomnożona przez 1000,
+ * dzięki czemu waga "0,432 kg" nie wymaga liczb zmiennoprzecinkowych.
+ */
+export const QUANTITY_SCALE = 1000;
+
+export interface ReceiptItem {
+  id: number;
+  receiptId: number;
+  name: string;
+  /** Ilość × 1000 (1 szt. = 1000, 0,432 kg = 432). */
+  quantity: number;
+  /** Cena jednostkowa w groszach. */
+  unitPrice: number;
+  /** Wartość pozycji w groszach — to ona jest źródłem prawdy. */
+  total: number;
+  categoryId: number | null;
+  sortOrder: number;
+}
+
+/** Udział jednej osoby w jednej pozycji, w groszach. */
+export interface ItemShare {
+  id: number;
+  itemId: number;
+  personId: number;
+  amount: number;
+}
+
+/** Pozycja wraz z przypisanymi udziałami — podstawowy kształt w interfejsie. */
+export interface ReceiptItemWithShares extends ReceiptItem {
+  categoryName: string | null;
+  categoryColor: string | null;
+  shares: ItemShare[];
+}
+
+/** Paragon z pozycjami — komplet danych ekranu podziału. */
+export interface ReceiptWithItems extends Receipt {
+  items: ReceiptItemWithShares[];
+  /** Suma wartości pozycji; może się różnić od `total` przy błędach OCR. */
+  itemsTotal: number;
+}
+
+/** Zapisane rozliczenie gotówkowe z osobą. */
+export interface Settlement {
+  id: number;
+  personId: number;
+  /** Dodatnia — osoba oddała mi pieniądze. Ujemna — ja oddałem osobie. */
+  amount: number;
+  date: ISODate;
+  note: string | null;
+  createdAt: string;
+}
+
+/** Saldo z jedną osobą: dodatnie = osoba jest mi winna. */
+export interface PersonBalance {
+  person: Person;
+  /** Ile ta osoba wydała z moich pieniędzy (jej udziały na moich paragonach). */
+  owesMe: number;
+  /** Ile ja wydałem z jej pieniędzy (moje udziały na jej paragonach). */
+  iOwe: number;
+  /** Suma zapisanych rozliczeń. */
+  settled: number;
+  /** owesMe - iOwe - settled. */
+  balance: number;
+}

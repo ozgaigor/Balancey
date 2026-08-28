@@ -247,6 +247,30 @@ export default function SettingsScreen() {
         />
       </Card>
 
+      <Card title="Paragony i podział kosztów">
+        <ListRow
+          icon="scan-outline"
+          iconColor={colors.accent}
+          title="Skanuj paragon"
+          subtitle="Lista zakupów z przypisaniem osób"
+          onPress={() => router.push('/scan')}
+        />
+        <ListRow
+          icon="people-outline"
+          iconColor={colors.bills}
+          title="Osoby"
+          subtitle="Domownicy, z którymi dzielisz zakupy"
+          onPress={() => router.push('/people')}
+        />
+        <ListRow
+          icon="swap-horizontal-outline"
+          iconColor={colors.savings}
+          title="Rozliczenia"
+          subtitle="Kto komu ile jest winien"
+          onPress={() => router.push('/settle')}
+        />
+      </Card>
+
       <Card title="Eksport i kopia zapasowa">
         <ListRow
           icon="document-text-outline"

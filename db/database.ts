@@ -74,6 +74,11 @@ export async function wipeAllData(): Promise<void> {
   const db = await getDb();
   await db.execAsync(`
     PRAGMA foreign_keys = OFF;
+    DELETE FROM item_shares;
+    DELETE FROM receipt_items;
+    DELETE FROM receipts;
+    DELETE FROM settlements;
+    DELETE FROM people;
     DELETE FROM transactions;
     DELETE FROM recurring_transactions;
     DELETE FROM budget_categories;

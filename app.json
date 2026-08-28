@@ -44,7 +44,14 @@
           "faceIDPermission": "Odblokowanie aplikacji budżetu za pomocą Face ID."
         }
       ],
-      "expo-font"
+      "expo-font",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Aparat jest potrzebny do skanowania paragonów. Zdjęcie jest odczytywane na urządzeniu i nie opuszcza telefonu.",
+          "recordAudioAndroid": false
+        }
+      ]
     ]
   }
 }

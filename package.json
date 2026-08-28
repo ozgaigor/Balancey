@@ -4,7 +4,9 @@
   "main": "expo-router/entry",
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
+    "@react-native-ml-kit/text-recognition": "^2.0.0",
     "expo": "~54.0.37",
+    "expo-camera": "~17.0.10",
     "expo-constants": "~18.0.14",
     "expo-crypto": "~15.0.9",
     "expo-device": "~8.0.10",
@@ -12,6 +14,7 @@
     "expo-file-system": "~19.0.24",
     "expo-font": "~14.0.12",
     "expo-haptics": "~15.0.8",
+    "expo-image-manipulator": "~14.0.8",
     "expo-linking": "~8.0.12",
     "expo-local-authentication": "~17.0.9",
     "expo-notifications": "~0.32.17",
@@ -41,8 +44,8 @@
   "scripts": {
     "start": "expo start",
     "start:clear": "expo start -c",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
     "test": "jest",
     "test:watch": "jest --watch",
     "typecheck": "tsc --noEmit",

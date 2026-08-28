@@ -30,9 +30,9 @@ const db = new DatabaseSync(':memory:');
 db.exec('PRAGMA foreign_keys = ON;');
 
 const migrations = read('db/migrations.ts');
-const schema = extractTemplate(migrations, 'MIGRATION_1');
-db.exec(schema);
-console.log('✓ schemat utworzony');
+db.exec(extractTemplate(migrations, 'MIGRATION_1'));
+db.exec(extractTemplate(migrations, 'MIGRATION_2'));
+console.log('✓ schemat utworzony (migracje 1-2)');
 
 const tables = db
   .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
@@ -50,6 +50,11 @@ const required = [
   'settings',
   'monthly_plans',
   'merchant_hints',
+  'people',
+  'receipts',
+  'receipt_items',
+  'item_shares',
+  'settlements',
 ];
 for (const table of required) {
   if (!tables.includes(table)) throw new Error(`Brak wymaganej tabeli: ${table}`);
@@ -102,6 +107,9 @@ const repositories = [
   'db/repositories/plans.ts',
   'db/repositories/hints.ts',
   'db/repositories/settings.ts',
+  'db/repositories/people.ts',
+  'db/repositories/receipts.ts',
+  'db/repositories/settlements.ts',
 ];
 
 const SELECT_WITH_CATEGORY = `
@@ -111,6 +119,26 @@ const SELECT_WITH_CATEGORY = `
 `;
 const ORDER = 'ORDER BY t.date DESC, t.id DESC';
 
+const SELECT_RECEIPT = `
+  SELECT id, transaction_id, merchant, date, total, payer_id, source,
+         raw_text, image_uri, created_at, updated_at
+  FROM receipts
+`;
+
+/** Każde repozytorium ma własny szablon ${SELECT} — podstawiamy właściwy. */
+function selectFor(file) {
+  if (file.endsWith('people.ts')) {
+    return 'SELECT id, name, color, is_me, archived, is_demo FROM people';
+  }
+  if (file.endsWith('settlements.ts')) {
+    return 'SELECT id, person_id, amount, date, note, created_at FROM settlements';
+  }
+  if (file.endsWith('categories.ts')) {
+    return 'SELECT id, name, kind, icon, color, sort_order, is_default, archived, is_demo FROM categories';
+  }
+  return '';
+}
+
 let checked = 0;
 for (const file of repositories) {
   const source = read(file);
@@ -118,9 +146,8 @@ for (const file of repositories) {
     const sql = raw
       .replace(/\$\{SELECT_WITH_CATEGORY\}/g, SELECT_WITH_CATEGORY)
       .replace(/\$\{ORDER\}/g, ORDER)
-      .replace(/\$\{SELECT\}/g, source.includes('FROM categories')
-        ? 'SELECT id, name, kind, icon, color, sort_order, is_default, archived, is_demo FROM categories'
-        : '')
+      .replace(/\$\{SELECT_RECEIPT\}/g, SELECT_RECEIPT)
+      .replace(/\$\{SELECT\}/g, selectFor(file))
       .replace(/\$\{[^}]*\}/g, '');
     if (!/^\s*(SELECT|INSERT|UPDATE|DELETE|PRAGMA|WITH)/i.test(sql)) continue;
     try {
@@ -236,5 +263,144 @@ console.log('✓ usunięcie kategorii zachowuje transakcje');
 // kasowanie danych demo
 db.exec('DELETE FROM transactions WHERE is_demo = 1');
 console.log('✓ dane demo dają się usunąć');
+
+/* ---------------------- paragony i podział kosztów ---------------------- */
+
+// wczesniejsza sekcja skasowala kategorie nr 1 - zakladamy wlasna
+db.prepare(
+  `INSERT INTO categories (name, kind, icon, color, sort_order, is_default, archived, is_demo, created_at, updated_at)
+   VALUES (?, ?, ?, ?, 9, 0, 0, 0, ?, ?)`
+).run('Zakupy', 'expense', 'cart-outline', '#F5A524', now, now);
+const CAT = db.prepare("SELECT id FROM categories WHERE name = 'Zakupy'").get().id;
+
+db.prepare(
+  `INSERT INTO people (name, color, is_me, archived, is_demo, created_at, updated_at)
+   VALUES (?, ?, 1, 0, 0, ?, ?)`
+).run('Ja', '#22C55E', now, now);
+db.prepare(
+  `INSERT INTO people (name, color, is_me, archived, is_demo, created_at, updated_at)
+   VALUES (?, ?, 0, 0, 0, ?, ?)`
+).run('Kasia', '#7C9CF5', now, now);
+const ME = 1;
+const KASIA = 2;
+
+// paragon opłacony przeze mnie, wpięty pod istniejący wydatek
+insertTx.run('expense', 3000, CAT, 'Biedronka', 'Paragon: 2 pozycje', '2026-08-18', '2026-08', 'card', 1, null, null, null, null, 0, now, now);
+const txId = db.prepare('SELECT MAX(id) AS id FROM transactions').get().id;
+
+db.prepare(
+  `INSERT INTO receipts (transaction_id, merchant, date, total, payer_id, source, raw_text, image_uri,
+     is_demo, created_at, updated_at)
+   VALUES (?, ?, ?, ?, ?, 'scan', NULL, NULL, 0, ?, ?)`
+).run(txId, 'Biedronka', '2026-08-18', 3000, ME, now, now);
+const receiptId = db.prepare('SELECT MAX(id) AS id FROM receipts').get().id;
+
+const insertItem = db.prepare(
+  `INSERT INTO receipt_items (receipt_id, name, quantity, unit_price, total, category_id, sort_order, created_at, updated_at)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+);
+insertItem.run(receiptId, 'Mleko', 1000, 1000, 1000, CAT, 0, now, now);
+insertItem.run(receiptId, 'Ser', 1000, 2000, 2000, CAT, 1, now, now);
+const itemMleko = db.prepare("SELECT id FROM receipt_items WHERE name = 'Mleko'").get().id;
+const itemSer = db.prepare("SELECT id FROM receipt_items WHERE name = 'Ser'").get().id;
+
+const insertShare = db.prepare(
+  'INSERT INTO item_shares (item_id, person_id, amount) VALUES (?, ?, ?)'
+);
+// mleko dzielone po połowie, ser w całości dla Kasi
+insertShare.run(itemMleko, ME, 500);
+insertShare.run(itemMleko, KASIA, 500);
+insertShare.run(itemSer, KASIA, 2000);
+
+const itemsTotal = db
+  .prepare('SELECT COALESCE(SUM(total), 0) AS total FROM receipt_items WHERE receipt_id = ?')
+  .get(receiptId).total;
+if (itemsTotal !== 3000) throw new Error('Suma pozycji paragonu nie zgadza się z kwotą wydatku');
+console.log('✓ suma pozycji paragonu zgadza się z kwotą wydatku');
+
+// jedna osoba nie może mieć dwóch udziałów w tej samej pozycji
+let duplicateShareBlocked = false;
+try {
+  insertShare.run(itemSer, KASIA, 100);
+} catch (error) {
+  duplicateShareBlocked = true;
+}
+if (!duplicateShareBlocked) throw new Error('UNIQUE (item_id, person_id) nie działa');
+console.log('✓ indeks chroni przed podwójnym udziałem tej samej osoby');
+
+// zapytanie o salda (db/repositories/receipts.ts -> loadRawBalances)
+const balanceSql = `
+  SELECT p.id AS person_id,
+         (SELECT COALESCE(SUM(s.amount), 0)
+            FROM item_shares s
+            JOIN receipt_items i ON i.id = s.item_id
+            JOIN receipts r ON r.id = i.receipt_id
+           WHERE s.person_id = p.id AND COALESCE(r.payer_id, ?) = ?) AS owes_me,
+         (SELECT COALESCE(SUM(s.amount), 0)
+            FROM item_shares s
+            JOIN receipt_items i ON i.id = s.item_id
+            JOIN receipts r ON r.id = i.receipt_id
+           WHERE s.person_id = ? AND r.payer_id = p.id) AS i_owe
+  FROM people p
+  WHERE p.id != ?
+  ORDER BY p.name COLLATE NOCASE`;
+
+let balances = db.prepare(balanceSql).all(ME, ME, ME, ME);
+if (balances.length !== 1) throw new Error('Salda: zła liczba osób');
+if (balances[0].owes_me !== 2500) {
+  throw new Error(`Kasia powinna być winna 2500 gr, jest ${balances[0].owes_me}`);
+}
+if (balances[0].i_owe !== 0) throw new Error('Nie powinienem nic być winien');
+console.log('✓ saldo liczone z udziałów w pozycjach');
+
+// paragon opłacony przez Kasię odwraca kierunek długu
+db.prepare(
+  `INSERT INTO receipts (transaction_id, merchant, date, total, payer_id, source, raw_text, image_uri,
+     is_demo, created_at, updated_at)
+   VALUES (NULL, ?, ?, ?, ?, 'manual', NULL, NULL, 0, ?, ?)`
+).run('Lidl', '2026-08-19', 1000, KASIA, now, now);
+const receipt2 = db.prepare('SELECT MAX(id) AS id FROM receipts').get().id;
+insertItem.run(receipt2, 'Chleb', 1000, 1000, 1000, CAT, 0, now, now);
+const itemChleb = db.prepare("SELECT id FROM receipt_items WHERE name = 'Chleb'").get().id;
+insertShare.run(itemChleb, ME, 1000);
+
+balances = db.prepare(balanceSql).all(ME, ME, ME, ME);
+if (balances[0].i_owe !== 1000) {
+  throw new Error('Paragon opłacony przez drugą osobę nie jest liczony');
+}
+console.log('✓ paragon opłacony przez inną osobę odwraca kierunek długu');
+
+// rozliczenie zeruje saldo
+db.prepare(
+  `INSERT INTO settlements (person_id, amount, date, note, is_demo, created_at)
+   VALUES (?, ?, ?, ?, 0, ?)`
+).run(KASIA, 1500, '2026-08-20', 'Zwrot', now);
+const settledTotal = db
+  .prepare('SELECT COALESCE(SUM(amount), 0) AS total FROM settlements WHERE person_id = ?')
+  .get(KASIA).total;
+const net = balances[0].owes_me - balances[0].i_owe - settledTotal;
+if (net !== 0) throw new Error(`Saldo po rozliczeniu powinno wynosić 0, wynosi ${net}`);
+console.log('✓ rozliczenie zeruje saldo');
+
+// usunięcie wydatku kasuje paragon wraz z pozycjami i udziałami
+db.prepare('DELETE FROM transactions WHERE id = ?').run(txId);
+const orphanReceipts = db.prepare('SELECT COUNT(*) AS count FROM receipts WHERE id = ?').get(receiptId).count;
+const orphanItems = db.prepare('SELECT COUNT(*) AS count FROM receipt_items WHERE receipt_id = ?').get(receiptId).count;
+const orphanShares = db
+  .prepare('SELECT COUNT(*) AS count FROM item_shares WHERE item_id IN (?, ?)')
+  .get(itemMleko, itemSer).count;
+if (orphanReceipts !== 0 || orphanItems !== 0 || orphanShares !== 0) {
+  throw new Error('Usunięcie wydatku nie kasuje paragonu (kaskada nie działa)');
+}
+console.log('✓ usunięcie wydatku kasuje paragon, pozycje i udziały');
+
+// usunięcie osoby nie rusza kwot pozycji
+db.prepare('DELETE FROM people WHERE id = ?').run(KASIA);
+const chlebNadal = db.prepare('SELECT total FROM receipt_items WHERE id = ?').get(itemChleb);
+if (!chlebNadal || chlebNadal.total !== 1000) {
+  throw new Error('Usunięcie osoby zmieniło kwoty pozycji');
+}
+console.log('✓ usunięcie osoby zachowuje kwoty pozycji');
+
 
 console.log('\nWSZYSTKIE SPRAWDZENIA SQL PRZESZŁY');
